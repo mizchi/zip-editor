@@ -1,14 +1,23 @@
 /** @jsx h */
 import "./_pre";
+// @ts-ignore
+import allzip from "!!file-loader!../all.zip";
 import JSZip from "jszip";
 import { render, h, Fragment } from "preact";
-import { useRef, useState } from "preact/hooks";
+import { useRef, useState, useEffect } from "preact/hooks";
 import path from "path";
 
 class ZipFileSystem {
   static async ensureHandler() {
     const newHandler = await window.chooseFileSystemEntries();
     return newHandler;
+  }
+
+  static async startWithZip(zip: JSZip) {
+    // const handler = (await this.ensureHandler()) as FileSystemHandle;
+    // const file = await handler.getFile();
+    // const zip = await new JSZip().loadAsync(file);
+    return new ZipFileSystem(zip, null);
   }
 
   static async startWithHandler() {
@@ -23,6 +32,10 @@ class ZipFileSystem {
     private _handler: FileSystemHandle | null
   ) {}
 
+  hasHandler() {
+    return !!this._handler;
+  }
+
   async save() {
     const result = await this._zip!.generateAsync({ type: "blob" });
     if (this._handler) {
@@ -34,6 +47,29 @@ class ZipFileSystem {
       } catch (err) {
         console.error(err);
       }
+    }
+  }
+
+  async saveAs() {
+    const result = await this._zip!.generateAsync({ type: "blob" });
+    const newHandler = await window.chooseFileSystemEntries({
+      type: "save-file",
+      accepts: [
+        {
+          description: "Zip file",
+          extensions: ["zip"],
+          mimeTypes: ["text/plain"],
+        },
+      ],
+    });
+
+    try {
+      // @ts-ignore
+      const writable = await newHandler.createWritable();
+      await writable.write(result);
+      await writable.close();
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -62,6 +98,24 @@ function App() {
   const [text, setText] = useState<string | null>(null);
   const [fs, setFs] = useState<ZipFileSystem | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const blob = await fetch(allzip).then((res) => res.blob());
+      const zip = await new JSZip().loadAsync(blob);
+      const fs = await ZipFileSystem.startWithZip(zip);
+      const filenames = await fs.listFiles();
+
+      setFs(fs);
+      setSelectedFile(filenames[0]);
+      setFiles(filenames);
+
+      const t = await fs.readFile(filenames[0]);
+      setText(t);
+
+      // console.log(bn);
+    })();
+  }, []);
   return (
     <div>
       {fs != null && text != null && (
@@ -100,7 +154,7 @@ function App() {
       )}
       <div>
         <button
-          disabled={text == null}
+          disabled={!fs?.hasHandler()}
           onClick={async () => {
             const content = ref.current!.value;
             setText(content);
@@ -111,6 +165,20 @@ function App() {
         >
           save
         </button>
+        <button
+          onClick={async () => {
+            const content = ref.current!.value;
+            setText(content);
+            if (fs) {
+              await fs.saveAs();
+            }
+          }}
+        >
+          saveAs
+        </button>
+      </div>
+      <div>
+        <hr />
         <button
           onClick={async () => {
             const fs = await ZipFileSystem.startWithHandler();
